@@ -9,71 +9,106 @@ block content
 
         div.inner(style="height: 5em;")
           audio#audio(autoplay="autoplay", controls="controls")
-          button#record-audio Record
-          button#stop-recording-audio(disabled="disabled") Stop
+          button#start-recording Record
+          button#stop-recording(disabled="disabled") Stop
           h2#audio-url-preview
 
   script.
-        function getByID(id) {
-            return document.getElementById(id);
-        }
+            var startRecording = document.getElementById('start-recording');
+            var stopRecording = document.getElementById('stop-recording');
+            var audioPreview = document.getElementById('audio');
 
-        var recordAudio = getByID('record-audio');
-        var stopRecordingAudio = getByID('stop-recording-audio');
+            var audio = document.querySelector('audio');
 
-        var audio = getByID('audio');
+            var isFirefox = !!navigator.mozGetUserMedia;
 
-        var audioConstraints = {
-            audio: true,
-            video: false
-        };
+            var recordAudio;
+            startRecording.onclick = function() {
+                startRecording.disabled = true;
+                navigator.getUserMedia({
+                        audio: true,
+                        video: false
+                    }, function(stream) {
+                        recordAudio = RecordRTC(stream, {
+                            bufferSize: 16384
+                        });
 
-        var audioStream;
-        var recorder;
-        recordAudio.onclick = function() {
-            if (!audioStream)
-                navigator.getUserMedia(audioConstraints, function(stream) {
-                    if (window.IsChrome) stream = new window.MediaStream(stream.getAudioTracks());
-                    audioStream = stream;
+                        recordAudio.startRecording();
 
-                    audio.src = URL.createObjectURL(audioStream);
-                    audio.muted = true;
-                    audio.play();
-
-                    // "audio" is a default type
-                    recorder = window.RecordRTC(stream, {
-                        type: 'audio',
-                        bufferSize: 4096,
-                        sampleRate: 44100,
-                        leftChannel: false,
-                        disableLogs: false
+                        stopRecording.disabled = false;
+                    }, function(error) {
+                        alert(JSON.stringify(error));
                     });
-                    recorder.startRecording();
-                }, function() {});
-            else {
-                audio.src = URL.createObjectURL(audioStream);
-                audio.muted = true;
-                audio.play();
-                if (recorder) recorder.startRecording();
+            };
+
+            stopRecording.onclick = function() {
+                startRecording.disabled = false;
+                stopRecording.disabled = true;
+
+                recordAudio.stopRecording(function() {
+                    if (isFirefox) onStopRecording();
+                });
+
+                if (!isFirefox) {
+                    onStopRecording();
+                }
+
+                function onStopRecording() {
+                    recordAudio.getDataURL(function(audioDataURL) {
+                        postFiles(audioDataURL);
+                    });
+                }
+            };
+
+            var fileName;
+
+            function postFiles(audioDataURL) {
+                fileName = getRandomString();
+                var files = { };
+
+                files.audio = {
+                    name: fileName + '.wav',
+                    type: 'audio/wav',
+                    contents: audioDataURL
+                };
+
+                files.isFirefox = isFirefox;
+
+                xhr('/upload', JSON.stringify(files), function(_fileName) {
+                    var href = location.href.substr(0, location.href.lastIndexOf('/') + 1);
+                    audioPreview.src = href + 'uploads/' + _fileName;
+                    audioPreview.play();
+
+                    var h2 = document.createElement('h2');
+                    h2.innerHTML = '<a href="' + audioPreview.src + '">' + audioPreview.src + '</a>';
+                    document.body.appendChild(h2);
+                });
             }
 
-            window.isAudio = true;
+            function xhr(url, data, callback) {
+                var request = new XMLHttpRequest();
+                request.onreadystatechange = function() {
+                    if (request.readyState == 4 && request.status == 200) {
+                        callback(request.responseText);
+                    }
+                };
+                request.open('POST', url);
+                console.log(url);
+                console.log(data);
+                request.send(data);
+            }
 
-            this.disabled = true;
-            stopRecordingAudio.disabled = false;
-        };
+            window.onbeforeunload = function() {
+                startRecording.disabled = false;
+            };
 
-        stopRecordingAudio.onclick = function() {
-            this.disabled = true;
-            recordAudio.disabled = false;
-            audio.src = '';
-
-            if (recorder)
-                recorder.stopRecording(function(url) {
-                    audio.src = url;
-                    audio.muted = false;
-                    audio.play();
-
-                    document.getElementById('audio-url-preview').innerHTML = '<a href="' + url + '" target="_blank">Recorded Audio URL</a>';
-                });
-        };
+            function getRandomString() {
+                if (window.crypto) {
+                    var a = window.crypto.getRandomValues(new Uint32Array(3)),
+                        token = '';
+                    for (var i = 0, l = a.length; i < l; i++) token += a[i].toString(36);
+                    return token;
+                } else {
+                    return (Math.random() * new Date().getTime()).toString(36).replace( /\./g , '');
+                }
+            }
