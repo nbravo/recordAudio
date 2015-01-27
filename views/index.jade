@@ -1,0 +1,79 @@
+extends layout
+
+block content
+  body
+    h1 Hello, World!
+      section.experiment
+        h2.header
+          Record Audio ( <a href="http://recordrtc.org/" title="API Documentation">RecordRTC.org</a> )
+
+        div.inner(style="height: 5em;")
+          audio#audio(autoplay="autoplay", controls="controls")
+          button#record-audio Record
+          button#stop-recording-audio(disabled="disabled") Stop
+          h2#audio-url-preview
+
+  script.
+        function getByID(id) {
+            return document.getElementById(id);
+        }
+
+        var recordAudio = getByID('record-audio');
+        var stopRecordingAudio = getByID('stop-recording-audio');
+
+        var audio = getByID('audio');
+
+        var audioConstraints = {
+            audio: true,
+            video: false
+        };
+
+        var audioStream;
+        var recorder;
+        recordAudio.onclick = function() {
+            if (!audioStream)
+                navigator.getUserMedia(audioConstraints, function(stream) {
+                    if (window.IsChrome) stream = new window.MediaStream(stream.getAudioTracks());
+                    audioStream = stream;
+
+                    audio.src = URL.createObjectURL(audioStream);
+                    audio.muted = true;
+                    audio.play();
+
+                    // "audio" is a default type
+                    recorder = window.RecordRTC(stream, {
+                        type: 'audio',
+                        bufferSize: 4096,
+                        sampleRate: 44100,
+                        leftChannel: false,
+                        disableLogs: false
+                    });
+                    recorder.startRecording();
+                }, function() {});
+            else {
+                audio.src = URL.createObjectURL(audioStream);
+                audio.muted = true;
+                audio.play();
+                if (recorder) recorder.startRecording();
+            }
+
+            window.isAudio = true;
+
+            this.disabled = true;
+            stopRecordingAudio.disabled = false;
+        };
+
+        stopRecordingAudio.onclick = function() {
+            this.disabled = true;
+            recordAudio.disabled = false;
+            audio.src = '';
+
+            if (recorder)
+                recorder.stopRecording(function(url) {
+                    audio.src = url;
+                    audio.muted = false;
+                    audio.play();
+
+                    document.getElementById('audio-url-preview').innerHTML = '<a href="' + url + '" target="_blank">Recorded Audio URL</a>';
+                });
+        };
